@@ -1,7 +1,8 @@
 require("dotenv").config();
+console.log("Gemini key exists:", !!process.env.GEMINI_API_KEY);
+console.log("Gemini key starts with:", process.env.GEMINI_API_KEY?.substring(0, 10));
 const express = require("express");
 const cron = require("node-cron");
-const Anthropic = require("@anthropic-ai/sdk");
 const { TwitterApi } = require("twitter-api-v2");
 const fs = require("fs");
 const path = require("path");
@@ -10,7 +11,15 @@ const app = express();
 app.use(express.json());
 
 // ─── Clients ───────────────────────────────────────────────
-const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+
+const genAI = new GoogleGenerativeAI(
+  process.env.GEMINI_API_KEY
+);
+
+const model = genAI.getGenerativeModel({
+  model: "gemini-2.5-flash"
+});
 
 const twitter = new TwitterApi({
   appKey: process.env.TWITTER_API_KEY,
@@ -53,40 +62,48 @@ function log(msg) {
   console.log(line);
 }
 
-// ─── Generate thread with Claude ───────────────────────────
-async function generateThread(topic, tone = "Intense & powerful", length = 5, lang = "English") {
+// ─── Generate thread with Gemini ───────────────────────────
+async function generateThread(
+  topic,
+  tone = "Intense & powerful",
+  length = 5,
+  lang = "English"
+) {
   log(`Generating thread: "${topic}" | ${tone} | ${lang}`);
 
   const prompt = `You are a world-class viral Twitter/X motivation content creator.
+
 Write a ${length}-tweet thread about: "${topic}"
+
 Tone: ${tone}
 Language: ${lang}
 
-Return ONLY a JSON array of strings. Each string = one tweet (max 270 chars):
-["tweet 1", "tweet 2", ...]
+Return ONLY a JSON array of strings.
+
+Example:
+["tweet 1","tweet 2","tweet 3"]
 
 Rules:
-- Tweet 1: shocking hook that stops the scroll instantly
-- Middle tweets: one powerful insight per tweet, no fluff
-- Last tweet: strong CTA — question or follow prompt + max 3 hashtags
-- Every word must earn its place — zero filler
-- Sound raw and human, not like AI
-- ${lang === "Hinglish" ? "Mix Hindi and English naturally like young Indians text" : ""}
-- ${lang === "Hindi" ? "Write fully in Hindi Devanagari script" : ""}
-No markdown, no backticks. Just the JSON array.`;
+- Tweet 1: shocking hook
+- Middle tweets: one powerful insight each
+- Last tweet: CTA + max 3 hashtags
+- No markdown
+- No code blocks
+- No explanations
+- Only return JSON array`;
 
-  const res = await claude.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 1500,
-    messages: [{ role: "user", content: prompt }],
-  });
+  const result = await model.generateContent(prompt);
 
-  const raw = res.content.map((b) => b.text || "").join("");
+  const raw = result.response.text();
+
   const match = raw.match(/\[[\s\S]*\]/);
-  if (!match) throw new Error("Failed to parse thread JSON from Claude");
+
+  if (!match) {
+    throw new Error("Failed to parse thread JSON from Gemini");
+  }
+
   return JSON.parse(match[0]);
 }
-
 // ─── Post thread to Twitter ─────────────────────────────────
 async function postThread(tweets) {
   log(`Posting ${tweets.length}-tweet thread...`);
