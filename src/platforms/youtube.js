@@ -3,11 +3,10 @@ const { google } = require("googleapis");
 const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
-const https = require("https");
 
 const ENV_PATH = path.join(__dirname, "../../.env");
+const FONT_PATH = path.join(__dirname, "../../fonts/Roboto-Bold.ttf");
 
-// ─── Save refreshed token to .env ───────────────────────────
 function updateEnvToken(newAccessToken) {
   try {
     let envContent = fs.readFileSync(ENV_PATH, "utf8");
@@ -22,7 +21,6 @@ function updateEnvToken(newAccessToken) {
   }
 }
 
-// ─── OAuth client ────────────────────────────────────────────
 function getOAuthClient() {
   const oauth2Client = new google.auth.OAuth2(
     process.env.YOUTUBE_CLIENT_ID,
@@ -52,67 +50,41 @@ async function getFreshAuth() {
   return auth;
 }
 
-// ─── ElevenLabs TTS voiceover ────────────────────────────────
+// ─── Windows PowerShell TTS — no internet, no API, works forever ───
 async function generateVoiceover(script, audioPath) {
-  const apiKey = process.env.ELEVENLABS_API_KEY;
-  if (!apiKey) {
-    console.log("[YouTube] No ElevenLabs key — skipping audio");
+  console.log("[YouTube] Generating voiceover...");
+  try {
+    const wavPath = audioPath.replace(".mp3", ".wav");
+
+    // Clean script for PowerShell
+    const cleanScript = script
+      .replace(/'/g, " ")
+      .replace(/"/g, " ")
+      .replace(/[^\x20-\x7E]/g, "")
+      .substring(0, 500);
+
+    // Step 1: Generate WAV using Windows built-in TTS
+    const psCmd = `powershell -Command "Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; $s.Rate = 1; $s.Volume = 100; $s.SetOutputToWaveFile('${wavPath.replace(/\\/g, "/")}'); $s.Speak('${cleanScript}'); $s.Dispose()"`;
+    execSync(psCmd, { stdio: "pipe" });
+
+    // Step 2: Convert WAV to MP3
+    execSync(`ffmpeg -y -i "${wavPath}" "${audioPath}"`, { stdio: "pipe" });
+
+    // Cleanup WAV
+    if (fs.existsSync(wavPath)) fs.unlinkSync(wavPath);
+
+    console.log("[YouTube] ✅ Voiceover ready");
+    return audioPath;
+  } catch (err) {
+    console.log("[YouTube] TTS failed:", err.message);
     return null;
   }
-
-  console.log("[YouTube] Generating voiceover with ElevenLabs...");
-
-  const voiceId = "pNInz6obpgDQGcFmaJgB"; // Adam — deep motivational voice
-
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify({
-      text: script,
-      model_id: "eleven_monolingual_v1",
-      voice_settings: { stability: 0.5, similarity_boost: 0.75 },
-    });
-
-    const options = {
-      hostname: "api.elevenlabs.io",
-      path: `/v1/text-to-speech/${voiceId}`,
-      method: "POST",
-      headers: {
-        "xi-api-key": apiKey,
-        "Content-Type": "application/json",
-        Accept: "audio/mpeg",
-      },
-    };
-
-    const req = https.request(options, (res) => {
-      if (res.statusCode !== 200) {
-        console.log("[YouTube] ElevenLabs error:", res.statusCode);
-        resolve(null);
-        return;
-      }
-      const file = fs.createWriteStream(audioPath);
-      res.pipe(file);
-      file.on("finish", () => {
-        file.close();
-        console.log("[YouTube] ✅ Voiceover generated");
-        resolve(audioPath);
-      });
-    });
-
-    req.on("error", (err) => {
-      console.log("[YouTube] ElevenLabs request failed:", err.message);
-      resolve(null);
-    });
-
-    req.write(body);
-    req.end();
-  });
 }
 
-// ─── Word wrap helper ────────────────────────────────────────
 function wrapText(text, maxCharsPerLine) {
   const words = text.split(" ");
   const lines = [];
   let current = "";
-
   for (const word of words) {
     if ((current + " " + word).trim().length <= maxCharsPerLine) {
       current = (current + " " + word).trim();
@@ -122,93 +94,78 @@ function wrapText(text, maxCharsPerLine) {
     }
   }
   if (current) lines.push(current);
-  return lines.slice(0, 6); // max 6 lines on screen
+  return lines.slice(0, 7);
 }
 
-// ─── Create video ────────────────────────────────────────────
 async function createVideo(script, outputPath) {
   console.log("[YouTube] Creating video...");
 
-  const base = path.join(__dirname, "../../").replace(/\\/g, "/");
-  const audioPath = base + "voiceover.mp3";
-  const silentVideoPath = base + "silent_video.mp4";
-  const outputForFFmpeg = outputPath.replace(/\\/g, "/");
+  const base = path.join(__dirname, "../../");
+  const audioPath = path.join(base, "voiceover.mp3");
+  const silentVideoPath = path.join(base, "silent_video.mp4");
+  const fontForFFmpeg = FONT_PATH.replace(/\\/g, "/").replace("C:/", "C\\:/");
 
-  // Clean script for display
-  const displayScript = script
-    .substring(0, 300)
+  const cleanScript = script
+    .substring(0, 350)
     .replace(/[^a-zA-Z0-9 .,!?'\-]/g, "");
+  const lines = wrapText(cleanScript, 25);
 
-  // Wrap into lines
-  const lines = wrapText(displayScript, 28);
-
-  // Build drawtext filters — one per line, centered vertically as a block
-  const lineHeight = 80;
+  const lineHeight = 75;
   const totalHeight = lines.length * lineHeight;
-  const startY = `(h-${totalHeight})/2`;
 
   const drawtextFilters = lines.map((line, i) => {
-    const safeText = line.replace(/'/g, "").replace(/:/g, " ");
-    const y = i === 0 ? startY : `${startY}+${i * lineHeight}`;
-    return `drawtext=text='${safeText}':fontcolor=white:fontsize=52:x=(w-text_w)/2:y=${y}:box=1:boxcolor=black@0.4:boxborderw=10`;
+    const safe = line.replace(/'/g, "").replace(/:/g, " ");
+    const yOffset = i * lineHeight;
+    return `drawtext=fontfile='${fontForFFmpeg}':text='${safe}':fontcolor=white:fontsize=56:x=(w-text_w)/2:y=((h-${totalHeight})/2)+${yOffset}:box=1:boxcolor=black@0.5:boxborderw=12`;
   }).join(",");
 
   // Step 1: Generate voiceover
-  const hasAudio = await generateVoiceover(script, audioPath.replace(/\//g, path.sep));
+  const hasAudio = await generateVoiceover(script, audioPath);
 
-  // Step 2: Get audio duration or default to 30s
+  // Step 2: Get audio duration
   let duration = 30;
   if (hasAudio) {
     try {
       const probe = execSync(
-        `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${audioPath.replace(/\//g, path.sep)}"`,
+        `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${audioPath}"`,
         { encoding: "utf8" }
       );
       duration = Math.ceil(parseFloat(probe.trim())) + 1;
     } catch { duration = 30; }
   }
 
-  // Step 3: Create silent video with gradient background + text
-  const gradientAndText = [
-    // Dark gradient background (deep purple to black — motivational feel)
-    `gradients=s=1080x1920:c0=0x1a0533:c1=0x000000:x0=0:y0=0:x1=1080:y1=1920`,
-    drawtextFilters,
-  ].join(",");
-
+  // Step 3: Create silent video with background + text
   const silentCmd = [
     "ffmpeg -y",
-    `-f lavfi -i "color=c=black:s=1080x1920:d=${duration}:r=30"`,
+    `-f lavfi -i "color=c=0x0d0d2b:s=1080x1920:d=${duration}:r=30"`,
     `-vf "${drawtextFilters}"`,
     "-c:v libx264 -pix_fmt yuv420p",
     `"${silentVideoPath}"`,
   ].join(" ");
 
-  execSync(silentCmd, { stdio: "inherit" });
+  execSync(silentCmd, { stdio: "pipe" });
 
-  // Step 4: Combine video + audio (or keep silent if no audio)
-  if (hasAudio && fs.existsSync(audioPath.replace(/\//g, path.sep))) {
+  // Step 4: Combine video + audio
+  if (hasAudio && fs.existsSync(audioPath)) {
     const combineCmd = [
       "ffmpeg -y",
       `"-i" "${silentVideoPath}"`,
       `"-i" "${audioPath}"`,
       "-c:v copy -c:a aac -shortest",
-      `"${outputForFFmpeg}"`,
+      `"${outputPath}"`,
     ].join(" ");
-    execSync(combineCmd, { stdio: "inherit" });
-    fs.unlinkSync(audioPath.replace(/\//g, path.sep));
+    execSync(combineCmd, { stdio: "pipe" });
+    fs.unlinkSync(audioPath);
   } else {
-    fs.renameSync(silentVideoPath.replace(/\//g, path.sep), outputPath);
+    fs.renameSync(silentVideoPath, outputPath);
   }
 
-  if (fs.existsSync(silentVideoPath.replace(/\//g, path.sep))) {
-    fs.unlinkSync(silentVideoPath.replace(/\//g, path.sep));
-  }
+  if (fs.existsSync(silentVideoPath)) fs.unlinkSync(silentVideoPath);
 
-  console.log("[YouTube] ✅ Video ready:", outputPath);
+  console.log("[YouTube] ✅ Video ready");
   return outputPath;
 }
 
-// ─── Upload to YouTube Shorts ────────────────────────────────
 async function uploadToYouTube(content) {
   const auth = await getFreshAuth();
   const youtube = google.youtube({ version: "v3", auth });
