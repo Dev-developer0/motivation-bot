@@ -24,11 +24,23 @@ function log(msg) {
   console.log(`[${new Date().toISOString()}] ${msg}`);
 }
 
-// ─── Main run function ───────────────────────────────────────
+// ─── Main run function with auto retry ──────────────────────
 async function run(customTopic) {
   log("Starting content run...");
   try {
-    const content = await generateContent(customTopic);
+    // Retry up to 3 times if Gemini is overloaded
+    let content;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        content = await generateContent(customTopic);
+        break;
+      } catch (err) {
+        if (attempt === 3) throw err;
+        log(`Gemini failed (attempt ${attempt}), retrying in 30s...`);
+        await new Promise(r => setTimeout(r, 30000));
+      }
+    }
+
     log(`Content generated: "${content.topic}" — mood: ${content.mood}`);
 
     const youtube = await uploadToYouTube(content);
