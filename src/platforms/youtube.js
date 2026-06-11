@@ -2,11 +2,8 @@ require("dotenv").config();
 const { google } = require("googleapis");
 const fs = require("fs");
 const path = require("path");
-const { execSync } = require("child_process");
 
 const ENV_PATH = path.join(__dirname, "../../.env");
-const FONT_PATH = path.join(__dirname, "../../fonts/Roboto-Bold.ttf");
-const MUSIC_DIR = path.join(__dirname, "../../music");
 
 function updateEnvToken(newAccessToken) {
   try {
@@ -51,98 +48,28 @@ async function getFreshAuth() {
   return auth;
 }
 
-// ─── Word wrap into lines of max N chars ─────────────────────
-function wrapText(text, maxChars) {
-  const words = text.split(" ");
-  const lines = [];
-  let current = "";
-  for (const word of words) {
-    if ((current + " " + word).trim().length <= maxChars) {
-      current = (current + " " + word).trim();
-    } else {
-      if (current) lines.push(current);
-      current = word;
-    }
-  }
-  if (current) lines.push(current);
-  return lines;
-}
-
-// ─── Create video ─────────────────────────────────────────────
-function createVideo(content, outputPath) {
-  const mood = content.mood || "dark";
-  const musicPath = path.join(MUSIC_DIR, `${mood}.mp3`).replace(/\\/g, "/");
-  const hasMusicFile = fs.existsSync(musicPath);
-  const fontForFFmpeg = FONT_PATH.replace(/\\/g, "/").replace("C:/", "C\\:/");
-
-  // Join all lines into one paragraph
-  const fullText = content.lines.join(" ");
-
-  // Wrap into screen-width lines (max 28 chars per line for big font)
-  const wrappedLines = wrapText(fullText, 28);
-
-  const fontSize = 52;
-  const lineHeight = 65;
-  const totalTextHeight = wrappedLines.length * lineHeight;
-
-  // Build one drawtext per wrapped line, all visible entire video
-  const filters = wrappedLines.map((line, i) => {
-    const safe = line
-      .replace(/'/g, "")
-      .replace(/"/g, "")
-      .replace(/[^\x20-\x7E]/g, "")
-      .replace(/:/g, " ")
-      .trim();
-    const yPos = `(h-${totalTextHeight})/2+${i * lineHeight}`;
-    return `drawtext=fontfile='${fontForFFmpeg}':text='${safe}':fontcolor=white:fontsize=${fontSize}:x=(w-text_w)/2:y=${yPos}`;
-  }).join(",");
-
-  const duration = 30;
-
-  let cmd;
-  if (hasMusicFile) {
-    console.log(`[YouTube] Using ${mood} music`);
-    cmd = [
-      "ffmpeg -y",
-      `-f lavfi -i "color=c=black:s=1080x1920:d=${duration}:r=30"`,
-      `-stream_loop -1 -i "${musicPath}"`,
-      `-filter_complex "[0:v]${filters}[v];[1:a]volume=0.15,atrim=0:${duration}[a]"`,
-      "-map [v] -map [a]",
-      `-t ${duration}`,
-      "-c:v libx264 -pix_fmt yuv420p -c:a aac",
-      `"${outputPath}"`,
-    ].join(" ");
-  } else {
-    console.log(`[YouTube] No music for mood: ${mood}`);
-    cmd = [
-      "ffmpeg -y",
-      `-f lavfi -i "color=c=black:s=1080x1920:d=${duration}:r=30"`,
-      `-vf "${filters}"`,
-      "-c:v libx264 -pix_fmt yuv420p",
-      `"${outputPath}"`,
-    ].join(" ");
-  }
-
-  execSync(cmd, { stdio: "pipe" });
-  console.log(`[YouTube] ✅ Video ready — ${duration}s, mood: ${mood}`);
-}
-
-// ─── Upload to YouTube ────────────────────────────────────────
 async function uploadToYouTube(content) {
   const auth = await getFreshAuth();
   const youtube = google.youtube({ version: "v3", auth });
 
-  const videoPath = path.join(__dirname, "../../output_video.mp4");
-  createVideo(content, videoPath);
+  // Use pre-made base video stored in repo
+  const videoPath = path.join(__dirname, "../../base_video.mp4");
 
-  console.log("[YouTube] Uploading...");
+  if (!fs.existsSync(videoPath)) {
+    throw new Error("base_video.mp4 not found. Please add it to the project root.");
+  }
+
+  console.log("[YouTube] Uploading base video with AI-generated title + description...");
+
+  // Full text goes into description — visible on YouTube
+  const fullText = content.lines.join("\n\n");
 
   const response = await youtube.videos.insert({
     part: ["snippet", "status"],
     requestBody: {
       snippet: {
         title: content.title + " #Shorts",
-        description: content.caption,
+        description: fullText + "\n\n" + content.caption,
         tags: ["motivation", "mindset", "shorts", "selfimprovement"],
         categoryId: "26",
       },
@@ -155,8 +82,6 @@ async function uploadToYouTube(content) {
       body: fs.createReadStream(videoPath),
     },
   });
-
-  if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
 
   const videoId = response.data.id;
   const videoUrl = `https://www.youtube.com/shorts/${videoId}`;
