@@ -6,6 +6,7 @@ const { execSync } = require("child_process");
 
 const ENV_PATH = path.join(__dirname, "../../.env");
 const FONT_PATH = path.join(__dirname, "../../fonts/Roboto-Bold.ttf");
+const MUSIC_DIR = path.join(__dirname, "../../music");
 
 function updateEnvToken(newAccessToken) {
   try {
@@ -50,43 +51,13 @@ async function getFreshAuth() {
   return auth;
 }
 
-// ─── Windows PowerShell TTS — no internet, no API, works forever ───
-async function generateVoiceover(script, audioPath) {
-  console.log("[YouTube] Generating voiceover...");
-  try {
-    const wavPath = audioPath.replace(".mp3", ".wav");
-
-    // Clean script for PowerShell
-    const cleanScript = script
-      .replace(/'/g, " ")
-      .replace(/"/g, " ")
-      .replace(/[^\x20-\x7E]/g, "")
-      .substring(0, 500);
-
-    // Step 1: Generate WAV using Windows built-in TTS
-    const psCmd = `powershell -Command "Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; $s.Rate = 1; $s.Volume = 100; $s.SetOutputToWaveFile('${wavPath.replace(/\\/g, "/")}'); $s.Speak('${cleanScript}'); $s.Dispose()"`;
-    execSync(psCmd, { stdio: "pipe" });
-
-    // Step 2: Convert WAV to MP3
-    execSync(`ffmpeg -y -i "${wavPath}" "${audioPath}"`, { stdio: "pipe" });
-
-    // Cleanup WAV
-    if (fs.existsSync(wavPath)) fs.unlinkSync(wavPath);
-
-    console.log("[YouTube] ✅ Voiceover ready");
-    return audioPath;
-  } catch (err) {
-    console.log("[YouTube] TTS failed:", err.message);
-    return null;
-  }
-}
-
-function wrapText(text, maxCharsPerLine) {
+// ─── Word wrap into lines of max N chars ─────────────────────
+function wrapText(text, maxChars) {
   const words = text.split(" ");
   const lines = [];
   let current = "";
   for (const word of words) {
-    if ((current + " " + word).trim().length <= maxCharsPerLine) {
+    if ((current + " " + word).trim().length <= maxChars) {
       current = (current + " " + word).trim();
     } else {
       if (current) lines.push(current);
@@ -94,84 +65,75 @@ function wrapText(text, maxCharsPerLine) {
     }
   }
   if (current) lines.push(current);
-  return lines.slice(0, 7);
+  return lines;
 }
 
-async function createVideo(script, outputPath) {
-  console.log("[YouTube] Creating video...");
-
-  const base = path.join(__dirname, "../../");
-  const audioPath = path.join(base, "voiceover.mp3");
-  const silentVideoPath = path.join(base, "silent_video.mp4");
+// ─── Create video ─────────────────────────────────────────────
+function createVideo(content, outputPath) {
+  const mood = content.mood || "dark";
+  const musicPath = path.join(MUSIC_DIR, `${mood}.mp3`).replace(/\\/g, "/");
+  const hasMusicFile = fs.existsSync(musicPath);
   const fontForFFmpeg = FONT_PATH.replace(/\\/g, "/").replace("C:/", "C\\:/");
 
-  const cleanScript = script
-    .substring(0, 350)
-    .replace(/[^a-zA-Z0-9 .,!?'\-]/g, "");
-  const lines = wrapText(cleanScript, 25);
+  // Join all lines into one paragraph
+  const fullText = content.lines.join(" ");
 
-  const lineHeight = 75;
-  const totalHeight = lines.length * lineHeight;
+  // Wrap into screen-width lines (max 28 chars per line for big font)
+  const wrappedLines = wrapText(fullText, 28);
 
-  const drawtextFilters = lines.map((line, i) => {
-    const safe = line.replace(/'/g, "").replace(/:/g, " ");
-    const yOffset = i * lineHeight;
-    return `drawtext=fontfile='${fontForFFmpeg}':text='${safe}':fontcolor=white:fontsize=56:x=(w-text_w)/2:y=((h-${totalHeight})/2)+${yOffset}:box=1:boxcolor=black@0.5:boxborderw=12`;
+  const fontSize = 52;
+  const lineHeight = 65;
+  const totalTextHeight = wrappedLines.length * lineHeight;
+
+  // Build one drawtext per wrapped line, all visible entire video
+  const filters = wrappedLines.map((line, i) => {
+    const safe = line
+      .replace(/'/g, "")
+      .replace(/"/g, "")
+      .replace(/[^\x20-\x7E]/g, "")
+      .replace(/:/g, " ")
+      .trim();
+    const yPos = `(h-${totalTextHeight})/2+${i * lineHeight}`;
+    return `drawtext=fontfile='${fontForFFmpeg}':text='${safe}':fontcolor=white:fontsize=${fontSize}:x=(w-text_w)/2:y=${yPos}`;
   }).join(",");
 
-  // Step 1: Generate voiceover
-  const hasAudio = await generateVoiceover(script, audioPath);
+  const duration = 30;
 
-  // Step 2: Get audio duration
-  let duration = 30;
-  if (hasAudio) {
-    try {
-      const probe = execSync(
-        `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${audioPath}"`,
-        { encoding: "utf8" }
-      );
-      duration = Math.ceil(parseFloat(probe.trim())) + 1;
-    } catch { duration = 30; }
-  }
-
-  // Step 3: Create silent video with background + text
-  const silentCmd = [
-    "ffmpeg -y",
-    `-f lavfi -i "color=c=0x0d0d2b:s=1080x1920:d=${duration}:r=30"`,
-    `-vf "${drawtextFilters}"`,
-    "-c:v libx264 -pix_fmt yuv420p",
-    `"${silentVideoPath}"`,
-  ].join(" ");
-
-  execSync(silentCmd, { stdio: "pipe" });
-
-  // Step 4: Combine video + audio
-  if (hasAudio && fs.existsSync(audioPath)) {
-    const combineCmd = [
+  let cmd;
+  if (hasMusicFile) {
+    console.log(`[YouTube] Using ${mood} music`);
+    cmd = [
       "ffmpeg -y",
-      `"-i" "${silentVideoPath}"`,
-      `"-i" "${audioPath}"`,
-      "-c:v copy -c:a aac -shortest",
+      `-f lavfi -i "color=c=black:s=1080x1920:d=${duration}:r=30"`,
+      `-stream_loop -1 -i "${musicPath}"`,
+      `-filter_complex "[0:v]${filters}[v];[1:a]volume=0.15,atrim=0:${duration}[a]"`,
+      "-map [v] -map [a]",
+      `-t ${duration}`,
+      "-c:v libx264 -pix_fmt yuv420p -c:a aac",
       `"${outputPath}"`,
     ].join(" ");
-    execSync(combineCmd, { stdio: "pipe" });
-    fs.unlinkSync(audioPath);
   } else {
-    fs.renameSync(silentVideoPath, outputPath);
+    console.log(`[YouTube] No music for mood: ${mood}`);
+    cmd = [
+      "ffmpeg -y",
+      `-f lavfi -i "color=c=black:s=1080x1920:d=${duration}:r=30"`,
+      `-vf "${filters}"`,
+      "-c:v libx264 -pix_fmt yuv420p",
+      `"${outputPath}"`,
+    ].join(" ");
   }
 
-  if (fs.existsSync(silentVideoPath)) fs.unlinkSync(silentVideoPath);
-
-  console.log("[YouTube] ✅ Video ready");
-  return outputPath;
+  execSync(cmd, { stdio: "pipe" });
+  console.log(`[YouTube] ✅ Video ready — ${duration}s, mood: ${mood}`);
 }
 
+// ─── Upload to YouTube ────────────────────────────────────────
 async function uploadToYouTube(content) {
   const auth = await getFreshAuth();
   const youtube = google.youtube({ version: "v3", auth });
 
   const videoPath = path.join(__dirname, "../../output_video.mp4");
-  await createVideo(content.script, videoPath);
+  createVideo(content, videoPath);
 
   console.log("[YouTube] Uploading...");
 
@@ -181,7 +143,7 @@ async function uploadToYouTube(content) {
       snippet: {
         title: content.title + " #Shorts",
         description: content.caption,
-        tags: content.hashtags,
+        tags: ["motivation", "mindset", "shorts", "selfimprovement"],
         categoryId: "26",
       },
       status: {
