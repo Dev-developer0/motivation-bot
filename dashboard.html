@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Motivation Bot</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0a0a;
+    color: #e8e8e8;
+    font-family: 'Courier New', monospace;
+    min-height: 100vh;
+    padding: 40px 24px;
+  }
+
+  .container { max-width: 680px; margin: 0 auto; }
+
+  header {
+    border-bottom: 1px solid #222;
+    padding-bottom: 24px;
+    margin-bottom: 40px;
+  }
+
+  .status-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    background: #22c55e;
+    border-radius: 50%;
+    margin-right: 8px;
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  h1 { font-size: 22px; font-weight: normal; color: #fff; margin-bottom: 6px; }
+  .subtitle { font-size: 13px; color: #555; }
+
+  .section { margin-bottom: 36px; }
+  .section-label {
+    font-size: 11px;
+    color: #444;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+
+  .btn {
+    display: block;
+    width: 100%;
+    padding: 16px 24px;
+    background: #111;
+    border: 1px solid #2a2a2a;
+    color: #e8e8e8;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 0.15s, background 0.15s;
+    margin-bottom: 10px;
+  }
+
+  .btn:hover { border-color: #555; background: #151515; }
+
+  .btn.primary {
+    border-color: #fff;
+    color: #fff;
+    background: #0f0f0f;
+  }
+
+  .btn.primary:hover { background: #1a1a1a; }
+
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    border-color: #222;
+  }
+
+  .btn .btn-label { display: block; margin-bottom: 4px; }
+  .btn .btn-desc { font-size: 11px; color: #555; }
+  .btn.primary .btn-desc { color: #666; }
+
+  .btn.loading { border-color: #f59e0b; }
+  .btn.success { border-color: #22c55e; }
+  .btn.error-state { border-color: #ef4444; }
+
+  .topic-input {
+    width: 100%;
+    padding: 14px 16px;
+    background: #0f0f0f;
+    border: 1px solid #2a2a2a;
+    color: #e8e8e8;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    margin-bottom: 10px;
+    outline: none;
+  }
+
+  .topic-input:focus { border-color: #444; }
+  .topic-input::placeholder { color: #333; }
+
+  .log {
+    background: #080808;
+    border: 1px solid #1a1a1a;
+    padding: 16px;
+    font-size: 12px;
+    line-height: 1.8;
+    min-height: 120px;
+    max-height: 300px;
+    overflow-y: auto;
+    color: #666;
+  }
+
+  .log .line { display: block; }
+  .log .line.success { color: #22c55e; }
+  .log .line.error { color: #ef4444; }
+  .log .line.info { color: #3b82f6; }
+  .log .line.warn { color: #f59e0b; }
+
+  .posts-list { display: flex; flex-direction: column; gap: 10px; }
+
+  .post-item {
+    padding: 14px 16px;
+    border: 1px solid #1a1a1a;
+    background: #080808;
+    font-size: 12px;
+  }
+
+  .post-item .post-topic { color: #e8e8e8; margin-bottom: 4px; }
+  .post-item .post-meta { color: #444; }
+  .post-item .post-link { color: #3b82f6; text-decoration: none; font-size: 11px; }
+  .post-item .post-link:hover { color: #60a5fa; }
+  .post-item.failed .post-topic { color: #ef4444; }
+
+  .empty { color: #333; font-size: 13px; padding: 20px 0; }
+
+  .schedule {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .schedule-time {
+    padding: 8px 16px;
+    border: 1px solid #1a1a1a;
+    font-size: 12px;
+    color: #555;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <h1><span class="status-dot"></span>Motivation Bot</h1>
+    <p class="subtitle">YouTube Shorts automation — checking server...</p>
+  </header>
+
+  <div class="section">
+    <div class="section-label">Post Now</div>
+    <input class="topic-input" id="topicInput" placeholder="Custom topic (leave empty for random)" />
+    <button class="btn primary" id="postBtn" onclick="postNow()">
+      <span class="btn-label">▶ Post to YouTube Shorts</span>
+      <span class="btn-desc">Generates content, creates video, uploads immediately</span>
+    </button>
+    <button class="btn" id="previewBtn" onclick="preview()">
+      <span class="btn-label">◎ Preview Content Only</span>
+      <span class="btn-desc">Generate and show content without uploading</span>
+    </button>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Output</div>
+    <div class="log" id="log">
+      <span class="line">Waiting for action...</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Auto Schedule</div>
+    <div class="schedule">
+      <div class="schedule-time">9:00 AM IST</div>
+      <div class="schedule-time">3:00 PM IST</div>
+      <div class="schedule-time">8:00 PM IST</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Recent Posts</div>
+    <div id="postsList"><div class="empty">Loading...</div></div>
+  </div>
+
+</div>
+
+<script>
+  const BASE = window.location.origin;
+
+  function addLog(msg, type = '') {
+    const log = document.getElementById('log');
+    const line = document.createElement('span');
+    line.className = 'line ' + type;
+    line.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+    log.appendChild(document.createElement('br'));
+    log.appendChild(line);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function clearLog() {
+    document.getElementById('log').innerHTML = '';
+  }
+
+  async function postNow() {
+    const btn = document.getElementById('postBtn');
+    const topic = document.getElementById('topicInput').value.trim();
+
+    btn.disabled = true;
+    btn.className = 'btn primary loading';
+    btn.querySelector('.btn-label').textContent = '⏳ Posting...';
+    clearLog();
+    addLog('Starting post...', 'info');
+    addLog('Generating content with Gemini...', 'info');
+
+    try {
+      const res = await fetch(BASE + '/post-now', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: topic || undefined })
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        addLog('✅ Content generated: ' + data.topic, 'success');
+        addLog('✅ Video uploaded!', 'success');
+        addLog('🔗 ' + data.youtube.videoUrl, 'success');
+        btn.className = 'btn primary success';
+        btn.querySelector('.btn-label').textContent = '✅ Posted!';
+        loadPosts();
+        setTimeout(() => {
+          btn.className = 'btn primary';
+          btn.querySelector('.btn-label').textContent = '▶ Post to YouTube Shorts';
+          btn.disabled = false;
+        }, 4000);
+      } else {
+        addLog('❌ Error: ' + data.error, 'error');
+        btn.className = 'btn primary error-state';
+        btn.querySelector('.btn-label').textContent = '❌ Failed — try again';
+        btn.disabled = false;
+      }
+    } catch (err) {
+      addLog('❌ Could not reach server: ' + err.message, 'error');
+      btn.className = 'btn primary error-state';
+      btn.querySelector('.btn-label').textContent = '❌ Failed — try again';
+      btn.disabled = false;
+    }
+  }
+
+  async function preview() {
+    const btn = document.getElementById('previewBtn');
+    const topic = document.getElementById('topicInput').value.trim();
+
+    btn.disabled = true;
+    btn.className = 'btn loading';
+    clearLog();
+    addLog('Generating preview...', 'info');
+
+    try {
+      const res = await fetch(BASE + '/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: topic || undefined })
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        const c = data.content;
+        addLog('Topic: ' + c.topic, 'info');
+        addLog('Mood: ' + c.mood, 'info');
+        addLog('Title: ' + c.title, 'success');
+        addLog('--- Lines ---', '');
+        c.lines.forEach((l, i) => addLog((i+1) + '. ' + l, ''));
+      } else {
+        addLog('❌ ' + data.error, 'error');
+      }
+    } catch (err) {
+      addLog('❌ ' + err.message, 'error');
+    }
+
+    btn.className = 'btn';
+    btn.disabled = false;
+  }
+
+  async function loadPosts() {
+    try {
+      const res = await fetch(BASE + '/posts');
+      const posts = await res.json();
+      const container = document.getElementById('postsList');
+
+      if (!posts.length) {
+        container.innerHTML = '<div class="empty">No posts yet.</div>';
+        return;
+      }
+
+      container.innerHTML = posts.slice(0, 10).map(p => `
+        <div class="post-item ${p.status === 'failed' ? 'failed' : ''}">
+          <div class="post-topic">${p.status === 'failed' ? '❌ ' + (p.error || 'Failed') : '✅ ' + (p.title || p.topic)}</div>
+          <div class="post-meta">${new Date(p.postedAt).toLocaleString('en-IN')} · ${p.mood || ''}</div>
+          ${p.youtubeUrl ? `<a class="post-link" href="${p.youtubeUrl}" target="_blank">→ Watch on YouTube</a>` : ''}
+        </div>
+      `).join('');
+    } catch {}
+  }
+
+  async function checkStatus() {
+    try {
+      const res = await fetch(BASE + '/');
+      const data = await res.json();
+      document.querySelector('.subtitle').textContent =
+        data.status === 'running' ? '● Live — ' + data.schedule : '○ Offline';
+    } catch {
+      document.querySelector('.subtitle').textContent = '○ Server not reachable';
+    }
+  }
+
+  // Init
+  checkStatus();
+  loadPosts();
+  setInterval(checkStatus, 30000);
+</script>
+</body>
+</html>

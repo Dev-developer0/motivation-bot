@@ -10,6 +10,11 @@ const { uploadToYouTube } = require("./src/platforms/youtube");
 const app = express();
 app.use(express.json());
 
+app.use(express.static(__dirname));
+app.get("/dashboard", (req, res) => {
+  res.sendFile(path.join(__dirname, "dashboard.html"));
+});
+
 const LOG_FILE = path.join(__dirname, "posts.json");
 
 function loadLog() {
@@ -109,8 +114,9 @@ app.post("/preview", async (req, res) => {
 app.post("/post-now", async (req, res) => {
   const { topic } = req.body;
   log("Manual post triggered via /post-now");
-  const result = await run(topic);
-  res.json(result);
+  // Return immediately, run in background
+  res.json({ success: true, message: "Posting in background... check /posts in 2 minutes" });
+  run(topic);
 });
 
 const PORT = process.env.PORT || 3000;
