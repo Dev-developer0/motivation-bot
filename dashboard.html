@@ -235,7 +235,7 @@
       if (data.success) {
         addLog('✅ Content generated: ' + data.topic, 'success');
         addLog('✅ Video uploaded!', 'success');
-        addLog('🔗 ' + data.youtube.videoUrl, 'success');
+        if (data.youtube) addLog('🔗 ' + data.youtube.videoUrl, 'success');
         btn.className = 'btn primary success';
         btn.querySelector('.btn-label').textContent = '✅ Posted!';
         loadPosts();

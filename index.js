@@ -114,9 +114,8 @@ app.post("/preview", async (req, res) => {
 app.post("/post-now", async (req, res) => {
   const { topic } = req.body;
   log("Manual post triggered via /post-now");
-  // Return immediately, run in background
-  res.json({ success: true, message: "Posting in background... check /posts in 2 minutes" });
-  run(topic);
+  const result = await run(topic);
+  res.json(result);
 });
 
 const PORT = process.env.PORT || 3000;
