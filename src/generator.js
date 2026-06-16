@@ -4,27 +4,33 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
 
+// Topics based on what's actually getting views — "why you..." psychological patterns
 const TOPICS = [
-  "a psychology trick that makes you more disciplined",
-  "why your brain resists new habits",
-  "the 2-minute rule that fixes procrastination",
-  "what happens to your brain when you wake up early",
-  "a Japanese technique for building habits",
-  "why willpower doesn't work (and what does)",
-  "the real reason you procrastinate",
-  "how Navy SEALs build mental toughness",
-  "a study that proves consistency beats motivation",
-  "why successful people wake up at the same time every day",
-  "the science of why habits stick",
-  "a simple trick to stop overthinking",
-  "what billionaires do differently every morning",
-  "why multitasking is destroying your focus",
-  "the 5 second rule for beating laziness",
-  "how to trick your brain into wanting to work out",
-  "why comparing yourself to others is rewiring your brain wrong",
-  "the real cost of scrolling social media for 2 hours",
-  "a mindset shift that changed how I see failure",
-  "why doing hard things first changes your whole day",
+  "why you quit things (it's not you)",
+  "why you keep quitting everything",
+  "why you always feel like you're behind",
+  "why you procrastinate even when you care",
+  "why you compare yourself to people who don't matter",
+  "why you feel guilty when you rest",
+  "why you start strong then disappear",
+  "why discipline feels impossible for you specifically",
+  "why you know what to do but don't do it",
+  "why you sabotage yourself right before success",
+  "why your motivation disappears after day 3",
+  "why you can't stick to a routine",
+  "why being busy isn't the same as being productive",
+  "why you avoid the things that actually matter",
+  "why small wins matter more than big goals",
+  "why you're not lazy, you're just stuck",
+  "why willpower runs out by 3pm",
+  "why you keep starting over",
+  "why you feel behind everyone your age",
+  "why nothing feels like enough lately",
+  "why you overthink simple decisions",
+  "why you say yes when you mean no",
+  "why you work hard but stay in the same place",
+  "why comfort is the real enemy",
+  "why you need permission to rest",
 ];
 
 let topicIndex = 0;
@@ -33,22 +39,25 @@ async function generateContent(customTopic) {
   const topic = customTopic || TOPICS[topicIndex % TOPICS.length];
   topicIndex++;
 
-  const prompt = `You are writing text for a YouTube Shorts video that teaches something useful.
+  const prompt = `You are writing text for a YouTube Shorts video that explains a psychological pattern to someone.
 
 Topic: "${topic}"
 
-STRUCTURE (this is critical):
-Line 1 = HOOK. Must make someone stop scrolling. Use curiosity, a number, or a bold claim. Examples of hook styles: "Most people don't know this about...", "This one habit changed everything", "Here's why you keep failing at..."
-Line 2-5 = VALUE. Explain the actual insight/trick/fact. Be specific. Give real information, not vague motivation.
-Line 6 = TAKEAWAY. One sentence that sums up what to do with this info.
+This style performs best — videos that explain "why you..." do something, making people feel understood, not judged.
+
+STRUCTURE:
+Line 1 = HOOK. Restate the topic as a relatable truth. Make them feel "this is about me."
+Line 2-4 = EXPLANATION. Explain the real psychological reason behind it. Be specific and insightful.
+Line 5 = RELIEF. Make it clear it's not their fault — it's a pattern, a system, brain wiring, etc.
+Line 6 = TAKEAWAY. One small actionable shift, not generic advice.
 
 Rules:
 - Each line under 12 words
-- Sound like a smart friend explaining something cool they learned
+- Sound like a smart friend who finally explains why you do this thing
 - Use contractions
-- Be specific — name actual studies, techniques, numbers if relevant
+- Be specific — reference real psychology concepts simply (dopamine, comfort zones, fear of failure, etc) without sounding clinical
 - No clichés like "unlock your potential" or "level up"
-- This should feel like the person LEARNED something, not just got motivated
+- Make the person feel SEEN, not lectured
 
 Pick mood: "dark" "uplifting" or "intense"
 
@@ -56,8 +65,8 @@ Return ONLY raw JSON no markdown:
 {
   "topic": "${topic}",
   "mood": "dark",
-  "lines": ["hook line", "value line 1", "value line 2", "value line 3", "value line 4", "takeaway line"],
-  "title": "YouTube title under 60 chars — curiosity driven, like a hook",
+  "lines": ["hook line", "explanation 1", "explanation 2", "explanation 3", "relief line", "takeaway line"],
+  "title": "YouTube title under 60 chars — use 'Why You...' format",
   "caption": "2 casual lines about the video. Atomic Habits changed how I think: AFFILIATE_LINK_HERE #shorts #psychology #mindset"
 }`;
 
